@@ -1,83 +1,111 @@
 import cv2
 import numpy as np
 import cv2 as cv
-import glob
 
 from camera import Camera
 
-# termination criteria
-criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)#
-gridx = 13
-gridy = 6
+WINDOW_NAME = "main"
+CALIB_FILE = "checker.png"
+CALIB_COLS = 13
+CALIB_ROWS = 6
 
-# prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
-objp = np.zeros((gridx * gridy, 3), np.float32)
-objp[:, :2] = np.mgrid[0:gridx, 0:gridy].T.reshape(-1, 2)
+#global
+mouseX = None
+mouseY = None
 
-
-cam = Camera(1)
-cam.set_exposure(-8)
-mouseX = 0
-mouseY = 0
-
-def draw_circle(event,x,y,flags,param):
+def click_event(event,x,y,flags,param):
     global mouseX,mouseY
-    if event == cv2.EVENT_LBUTTONDOWN:
-        print("click", x, y)
+    if event == cv.EVENT_LBUTTONDOWN:
         mouseX,mouseY = x,y
-def map_point_to_checkerboard_frame(H, point):
+
+def checkerboard_to_projector(H, point):
     point_homogeneous = np.array([point[0], point[1], 1.0]).reshape((3, 1))
     mapped_point = np.dot(H, point_homogeneous)
     mapped_point /= mapped_point[2]  # Convert from homogeneous coordinates
-    return mapped_point[:2]
 
-#cv2.namedWindow('img')
-#cv2.setMouseCallback('img',draw_circle)
+    cx, cy = mapped_point[:2]
 
-H = None
-while True:
+    cx += 2
+    cy += 2
 
-    img = cam.read(color=True)
-    checker = np.zeros(((gridy + 4) * 10, (gridx + 4) * 10, 3))
-    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    cx /= CALIB_COLS + 3
+    cy /= CALIB_ROWS + 3
 
-    if H is None:
+    cx = 1 - cx
+    cy = 1 - cy
 
+    return cx, cy
+
+def create_window():
+    cv.namedWindow(WINDOW_NAME, cv.WINDOW_NORMAL)
+    cv.setWindowProperty(WINDOW_NAME, cv.WND_PROP_FULLSCREEN, cv.WINDOW_FULLSCREEN)
+
+def find_homography(cam):
+    checkerboard_frame = cv.imread(CALIB_FILE)
+
+    checkerboard_model = np.zeros((CALIB_COLS * CALIB_ROWS, 3), np.float32)
+    checkerboard_model[:, :2] = np.mgrid[0:CALIB_COLS, 0:CALIB_ROWS].T.reshape(-1, 2)
+
+    homography = None
+    while True:
+        cv.imshow(WINDOW_NAME, checkerboard_frame)
+        key = cv.waitKey(1)
+
+        img = cam.read(color=True)
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        checkerboard_success, checkerboard_corners = cv.findChessboardCorners(gray, (CALIB_COLS, CALIB_ROWS), None)
+
+        if checkerboard_success:
+            cv.drawChessboardCorners(img, (CALIB_ROWS, CALIB_COLS), checkerboard_corners, checkerboard_success)
+            homography, _ = cv.findHomography(checkerboard_corners, checkerboard_model)
+            return homography
+
+        cv.imshow("cam", img)
+
+        if key == 27:
+            quit()
+        if key == 13:
+            return homography
+        if key != -1:
+            print(key)
+
+def find_laser(img):
+    red_blur = cv.blur(img[:, :, 2], [5, 5])
+    minV, maxV, minL, maxL = cv.minMaxLoc(red_blur)
+    return maxL
 
 
-        # Find the chess board corners
-        ret, corners = cv.findChessboardCorners(gray, (gridx, gridy), None)
+if __name__ == "__main__":
+    cam = Camera(1)
+    create_window()
+    homography = find_homography(cam)
+    print(homography)
 
-        # If found, add object points, image points (after refining them)
-        if not ret:
-            continue
+    while True:
+        cam_frame = cam.read(color=True)
+        laser_pos = find_laser(cam_frame)
 
-        corners2 = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
-        #corners2 = corners
+        checker_x, checker_y = checkerboard_to_projector(homography,laser_pos)
 
-        # Draw and display the corners
-        cv.drawChessboardCorners(img, (gridx, gridy), corners2, ret)
+        window_frame = np.zeros((720, 1280, 3))
+        pos = (int(checker_x*window_frame.shape[1]), int(checker_y*window_frame.shape[0]))
 
-        H, a = cv.findHomography(corners, objp)
+        cv.drawMarker(window_frame, pos, (0, 0.4, 0), markerSize=100, thickness=4)
+        cv.circle(window_frame, pos, 100, (0,0.4,0), 4)
 
-    else:
+        cv.drawMarker(cam_frame, laser_pos, (0, 0.3, 0))
 
-        #image_point = (mouseX,mouseY)
-        red_blur = cv.blur(img[:,:,2], [5,5])
-        minV, maxV, minL, maxL = cv.minMaxLoc(red_blur)
-        image_point = maxL
-        cx, cy = map_point_to_checkerboard_frame(H, image_point)
+        cv2.imshow(WINDOW_NAME, window_frame)
+        cv2.imshow("cam", cam_frame)
+        k = cv2.waitKey(1)
+        if k == 27:
+            quit()
 
-        #cv2.drawMarker(img, image_point, (128,0,0))
 
-        cv2.drawMarker(checker, (int((gridx-cx+1)*10.7), int((gridy-cy+1)*11.2)), (0, 255, 0))
 
-    #cv.imshow('img', img)
-    checker_full = cv.resize(checker, (1280,720))
-    checker_full = checker_full[29:, :]
+# display a checkerboard to screen
+# open camera and look at checkerboard
+# find the homography matrix
+# track features
+# reproject features
 
-    cv.imshow("checker",checker_full)
-    cv.waitKey(1)
-
-cv.destroyAllWindows()
