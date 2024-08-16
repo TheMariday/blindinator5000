@@ -3,7 +3,7 @@ import numpy as np
 import cv2 as cv
 
 WINDOW_NAME = "main"
-CALIB_FILE = "checker.png"
+CALIB_FILE = "resources/checker.png"
 CALIB_COLS = 13
 CALIB_ROWS = 6
 
@@ -12,8 +12,8 @@ def cam_to_projector(homo, point):
     point_homogeneous = np.array([point[0], point[1], 1.0]).reshape((3, 1))
     mapped_point = np.dot(homo, point_homogeneous)
 
-    # This is based off of the relationship between the checkerboard and the full
-    # screen size. Don't worry about it
+    # This is based off of the relationship between the checkerboard and the
+    # full screen size. Don't worry about it
     cx = 1 - (mapped_point[0] / mapped_point[2] + 2) / (CALIB_COLS + 3)
     cy = 1 - (mapped_point[1] / mapped_point[2] + 2) / (CALIB_ROWS + 3)
 
@@ -33,7 +33,6 @@ def find_homography(cam):
     homography = None
     while True:
         cv.imshow(WINDOW_NAME, checkerboard_frame)
-        key = cv.waitKey(1)
 
         _, img = cam.read()
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -51,6 +50,7 @@ def find_homography(cam):
             homography, _ = cv.findHomography(checkerboard_corners, checkerboard_model)
 
         cv.imshow("cam", img)
+        key = cv.waitKey(1)
 
         if key == 27:
             quit()
