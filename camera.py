@@ -1,6 +1,7 @@
 import cv2
 import logging
 
+
 class CameraSettings:
 
     def __init__(self, camera):
