@@ -1,11 +1,15 @@
 import cv2
 import numpy as np
 import cv2 as cv
+import sdl2.ext
 
 WINDOW_NAME = "main"
 CALIB_FILE = "resources/checker.png"
 CALIB_COLS = 13
 CALIB_ROWS = 6
+
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
 
 
 def cam_to_projector(homo, point):
@@ -20,19 +24,20 @@ def cam_to_projector(homo, point):
     return cx, cy
 
 
-def find_homography(cam):
-    checkerboard_frame = cv.imread(CALIB_FILE)
+def find_homography(cam, renderer):
 
-    _, _, screen_width, screen_height = cv2.getWindowImageRect(WINDOW_NAME)
+    checkerboard_img = sdl2.ext.load_img(CALIB_FILE)
+    checkerboard_texture = sdl2.ext.Texture(renderer, checkerboard_img)
 
-    checkerboard_frame = cv.resize(checkerboard_frame, (screen_width, screen_height))
+    renderer.clear()
+    renderer.copy(checkerboard_texture, dstrect=(0, 0, 1280, 720))
+    renderer.present()
 
     checkerboard_model = np.zeros((CALIB_COLS * CALIB_ROWS, 3), np.float32)
     checkerboard_model[:, :2] = np.mgrid[0:CALIB_COLS, 0:CALIB_ROWS].T.reshape(-1, 2)
 
     homography = None
     while True:
-        cv.imshow(WINDOW_NAME, checkerboard_frame)
 
         _, img = cam.read()
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -65,14 +70,25 @@ def find_laser(img):
 
 
 if __name__ == "__main__":
-    cam = cv.VideoCapture(1, cv2.CAP_DSHOW)
 
-    cv.namedWindow(WINDOW_NAME, cv.WINDOW_NORMAL)
-    cv.setWindowProperty(WINDOW_NAME, cv.WND_PROP_FULLSCREEN, cv.WINDOW_FULLSCREEN)
+    sdl2.ext.init()
 
-    homography = find_homography(cam)
+    cam = cv.VideoCapture(0, cv2.CAP_DSHOW)
 
-    _, _, screen_width, screen_height = cv2.getWindowImageRect(WINDOW_NAME)
+    window = sdl2.ext.Window(WINDOW_NAME, size=(SCREEN_WIDTH, SCREEN_HEIGHT))
+    window.show()
+
+    renderer = sdl2.ext.Renderer(
+        window, flags=sdl2.SDL_RENDERER_ACCELERATED | sdl2.SDL_RENDERER_PRESENTVSYNC
+    )
+
+    homography = find_homography(cam, renderer)
+
+    target_img = sdl2.ext.load_img("resources/target.jpg")
+    target_texture = sdl2.ext.Texture(renderer, target_img)
+
+    #sdl2.SDL_SetTextureAlphaMod(target_texture, 128)
+
 
     while True:
         _, cam_frame = cam.read()
@@ -80,19 +96,16 @@ if __name__ == "__main__":
 
         projector_x, projector_y = cam_to_projector(homography, (camera_x, camera_y))
 
-        screen_frame = np.zeros((screen_height, screen_width, 3))
-        screen_x = int(projector_x * screen_width)
-        screen_y = int(projector_y * screen_height)
+        screen_x = int(projector_x * SCREEN_WIDTH)
+        screen_y = int(projector_y * SCREEN_HEIGHT)
 
-        cv.drawMarker(
-            screen_frame, (screen_x, screen_y), (0, 0.4, 0), markerSize=100, thickness=4
-        )
-        cv.circle(screen_frame, (screen_x, screen_y), 100, (0, 0.4, 0), 4)
+        renderer.clear()
+        renderer.copy(target_texture, dstrect=(screen_x-50, screen_y-50, 100, 100))
+        renderer.present()
 
-        cv.drawMarker(cam_frame, (camera_x, camera_y), (0, 0.3, 0))
+        #cv.drawMarker(cam_frame, (camera_x, camera_y), (0, 0.3, 0))
 
-        cv2.imshow(WINDOW_NAME, screen_frame)
-        cv2.imshow("cam", cam_frame)
-        k = cv2.waitKey(1)
-        if k == 27:
-            quit()
+        #cv2.imshow("cam", cam_frame)
+        #k = cv2.waitKey(1)
+        #if k == 27:
+        #    quit()
